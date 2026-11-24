@@ -228,4 +228,3 @@ void audio_loop() {
 
   Serial.println(currentWaveform == WAVE_SAW ? "SAW" : "SQUARE");
 }
-

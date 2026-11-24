@@ -2,6 +2,7 @@
 #include <math.h>
 #include "din_midi.h"
 #include "audio.h"
+#include "pots.h"
 
 void setup() {
 
@@ -14,6 +15,8 @@ void setup() {
 	Serial.println("DIN MIDI input ready");
 
 	audio_start();
+
+	pots_init();
 }
 
 void loop() {
@@ -27,4 +30,6 @@ void loop() {
 
 		din_midi_write(data);
 	}
+
+	pots_loop();
 }

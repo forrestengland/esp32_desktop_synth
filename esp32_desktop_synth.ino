@@ -3,6 +3,7 @@
 #include "din_midi.h"
 #include "audio.h"
 #include "pots.h"
+#include "oled.h"
 
 void setup() {
 
@@ -17,6 +18,8 @@ void setup() {
 	audio_start();
 
 	pots_init();
+
+	oled_init();
 }
 
 void loop() {
@@ -32,4 +35,6 @@ void loop() {
 	}
 
 	pots_loop();
+
+	oled_loop();
 }

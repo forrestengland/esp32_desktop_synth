@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <math.h>
 #include "din_midi.h"
+#include "audio.h"
 
 void setup() {
 
@@ -11,6 +12,8 @@ void setup() {
 	din_midi_init();
 
 	Serial.println("DIN MIDI input ready");
+
+	audio_start();
 }
 
 void loop() {

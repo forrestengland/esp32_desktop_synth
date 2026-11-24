@@ -4,6 +4,7 @@
 #include "audio.h"
 #include "pots.h"
 #include "oled.h"
+#include "encoders.h"
 
 void setup() {
 
@@ -20,6 +21,8 @@ void setup() {
 	pots_init();
 
 	oled_init();
+
+	encoders_init();
 }
 
 void loop() {
@@ -37,4 +40,6 @@ void loop() {
 	pots_loop();
 
 	oled_loop();
+
+	encoders_loop();
 }

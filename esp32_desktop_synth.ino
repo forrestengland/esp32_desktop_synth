@@ -5,6 +5,7 @@
 #include "pots.h"
 #include "oled.h"
 #include "encoders.h"
+#include "buttons.h"
 
 void setup() {
 
@@ -23,6 +24,8 @@ void setup() {
 	oled_init();
 
 	encoders_init();
+
+	buttons_init();
 }
 
 void loop() {
@@ -42,4 +45,6 @@ void loop() {
 	oled_loop();
 
 	encoders_loop();
+
+	buttons_loop();
 }

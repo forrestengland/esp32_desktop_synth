@@ -17,6 +17,14 @@ void on_din_pitchbend(uint8_t channel, float val) {
 	audio_set_pitchbend(val);
 }
 
+void on_usb_noteon(uint8_t channel, uint8_t note, uint8_t vel) {
+	audio_set_note(note, vel);
+}
+
+void on_usb_pitchbend(uint8_t channel, float val) {
+	audio_set_pitchbend(val);
+}
+
 void setup() {
 
   Serial.begin(115200);
@@ -42,6 +50,9 @@ void setup() {
 	din_midi_set_noteon_callback(on_din_noteon);
 	din_midi_set_pitchbend_callback(on_din_pitchbend);
 
+	usb_midi_set_noteon_callback(on_usb_noteon);
+	usb_midi_set_pitchbend_callback(on_usb_pitchbend);
+
 	audio_set_attack(0.3f);
 	audio_set_release(0.7f);
 }
@@ -51,8 +62,6 @@ void loop() {
 	while (din_midi_available()) {
 
 		unsigned char data = din_midi_read();
-
-		//		Serial.printf("%02x ", data);
 
 		din_midi_write(data);
 	}

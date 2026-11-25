@@ -11,6 +11,7 @@ Adafruit_ADS1115 ads;
 
 int16_t minRaw[4] = {32767, 32767, 32767, 32767};
 int16_t maxRaw[4] = {-32768, -32768, -32768, -32768};
+float potval[4];
 
 void pots_init() {
 
@@ -43,9 +44,11 @@ void pots_loop() {
 
     for (int ch = 0; ch < 4; ch++) {
       float norm = constrain(raw[ch] / 26400.0f, 0.0f, 1.0f);
-      Serial.printf("P%d raw %5d (%.3f) [%5d..%5d]   ",
-                    ch, raw[ch], norm, minRaw[ch], maxRaw[ch]);
+      if (potval[ch] != norm) {
+	Serial.printf("P%d raw %5d (%.3f) [%5d..%5d]\n",
+		      ch, raw[ch], norm, minRaw[ch], maxRaw[ch]);
+	potval[ch] = norm;
+      }
     }
-    Serial.println();
   }
 }

@@ -78,9 +78,9 @@ void oled_loop() {
   display.display();
   frames++;
 
-  if (millis() - lastFpsMs >= 1000) {
+  /*  if (millis() - lastFpsMs >= 1000) {
     Serial.printf("%lu fps\n", (unsigned long)frames);
     frames = 0;
     lastFpsMs = millis();
-  }
+    } */
 }

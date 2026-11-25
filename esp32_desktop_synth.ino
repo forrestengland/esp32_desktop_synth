@@ -38,8 +38,7 @@ void loop() {
 
 		unsigned char data = din_midi_read();
 
-		Serial.print(data);
-		Serial.print(" ");
+		Serial.printf("%02x ", data);
 
 		din_midi_write(data);
 	}

@@ -24,6 +24,20 @@ uint8_t last_data2_byte = 0;
 #define DIN_MIDI_DEBUG_MESSAGE_SIZE 128
 char din_midi_debug_message[DIN_MIDI_DEBUG_MESSAGE_SIZE];
 
+typedef void (*din_midi_note_callback)(uint8_t channel, uint8_t note, uint8_t vel);
+typedef void (*din_midi_pitch_callback)(uint8_t channel, float value);
+
+din_midi_note_callback din_midi_noteon_cbk = 0;
+din_midi_pitch_callback din_midi_pitchbend_cbk = 0;
+
+void din_midi_set_noteon_callback(din_midi_note_callback cbk) {
+  din_midi_noteon_cbk = cbk;
+}
+
+void din_midi_set_pitchbend_callback(din_midi_pitch_callback cbk) {
+  din_midi_pitchbend_cbk = cbk;
+}
+
 // start midi din
 void din_midi_init() {
   Serial2.begin(31250, SERIAL_8N1, MIDI_RX_PIN, MIDI_TX_PIN);
@@ -70,9 +84,14 @@ unsigned char din_midi_read() {
 	  int channel = last_status_byte & 0x0F;
 
 	  // have complete note on message.
-	  snprintf(din_midi_debug_message, DIN_MIDI_DEBUG_MESSAGE_SIZE,
-		   "din_midi: got note on: channel %d, note %d, vel %d\n", channel, last_data1_byte, last_data2_byte);
-	  Serial.print(din_midi_debug_message);
+	  //	  snprintf(din_midi_debug_message, DIN_MIDI_DEBUG_MESSAGE_SIZE,
+	  //		   "din_midi: got note on: channel %d, note %d, vel %d\n", channel, last_data1_byte, last_data2_byte);
+	  //	  Serial.print(din_midi_debug_message);
+
+	  if (din_midi_noteon_cbk     ) {
+	    din_midi_noteon_cbk(channel, last_data1_byte, last_data2_byte);
+	  }
+	  
 	  last_status_byte = 0;
 	  last_data1_byte = 0;
 	  last_data2_byte = 0;
@@ -96,9 +115,9 @@ unsigned char din_midi_read() {
 	  int channel = last_status_byte & 0x0F;
 
 	  // have complete note off message.
-	  snprintf(din_midi_debug_message, DIN_MIDI_DEBUG_MESSAGE_SIZE,
-		   "din_midi: got note off: channel %d, note %d, vel %d\n", channel, last_data1_byte, last_data2_byte);
-	  Serial.print(din_midi_debug_message);
+	  //	  snprintf(din_midi_debug_message, DIN_MIDI_DEBUG_MESSAGE_SIZE,
+	  //		   "din_midi: got note off: channel %d, note %d, vel %d\n", channel, last_data1_byte, last_data2_byte);
+	  //	  Serial.print(din_midi_debug_message);
 	  last_status_byte = 0;
 	  last_data1_byte = 0;
 	  last_data2_byte = 0;
@@ -122,9 +141,10 @@ unsigned char din_midi_read() {
 	  int channel = last_status_byte & 0x0F;
 
 	  // have complete control change message.
-	  snprintf(din_midi_debug_message, DIN_MIDI_DEBUG_MESSAGE_SIZE,
-		   "din_midi: got control change: channel %d, control %d, val %d\n", channel, last_data1_byte, last_data2_byte);
-	  Serial.print(din_midi_debug_message);
+	  //	  snprintf(din_midi_debug_message, DIN_MIDI_DEBUG_MESSAGE_SIZE,
+	  //		   "din_midi: got control change: channel %d, control %d, val %d\n", channel, last_data1_byte, last_data2_byte);
+	  //	  Serial.print(din_midi_debug_message);
+	  
 	  last_status_byte = 0;
 	  last_data1_byte = 0;
 	  last_data2_byte = 0;
@@ -161,9 +181,14 @@ unsigned char din_midi_read() {
 	    : (signed_bend / 8192.0f);	  
 
 	  // have complete pitch bend message.
-	  snprintf(din_midi_debug_message, DIN_MIDI_DEBUG_MESSAGE_SIZE,
-		   "din_midi: got pitch bend: channel %d, val %f\n", channel, normalized_bend);
-	  Serial.print(din_midi_debug_message);
+	  //	  snprintf(din_midi_debug_message, DIN_MIDI_DEBUG_MESSAGE_SIZE,
+	  //		   "din_midi: got pitch bend: channel %d, val %f\n", channel, normalized_bend);
+	  //	  Serial.print(din_midi_debug_message);
+
+	  if (din_midi_pitchbend_cbk) {
+	    din_midi_pitchbend_cbk(channel, normalized_bend);
+	  }
+	  
 	  last_status_byte = 0;
 	  last_data1_byte = 0;
 	  last_data2_byte = 0;

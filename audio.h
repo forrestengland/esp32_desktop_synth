@@ -34,6 +34,9 @@ float squareTable[WAVETABLE_SIZE];
 portMUX_TYPE synthMux = portMUX_INITIALIZER_UNLOCKED;
 
 int activeNote = -1;
+float pitchBendSemitones = 0.0f;
+float pitchBendRange = 12.0f;
+
 float targetAmplitude = 0.0f;
 float currentAmplitude = 0.0f;
 float phase = 0.0f;
@@ -44,6 +47,14 @@ int manualVelocity = 0;
 
 // -------- I2S driver --------
 i2s_chan_handle_t txHandle = nullptr;
+
+// compute phase increment from note + bend
+inline float computePhaseIncrement(int note, float bendSemitones) {
+  if (note < 0) return 0.0f;
+  float effectiveNote = (float)note + bendSemitones;
+  float frequency = 440.0f * powf(2.0f, (effectiveNote - 69.0f) / 12.0f);
+  return (frequency * WAVETABLE_SIZE) / SAMPLE_RATE;
+}
 
 float getOscillatorSample() {
 
@@ -116,23 +127,48 @@ void audio_init() {
 	Serial.println("I2S audio started.");
 }
 
-void updateSynthVoice() {
+void updateSynthVoice(int note, int velocity) {
 
-	// Manual keyboard notes take priority.
-	int note = 60;
-	int velocity = 100;
+  // Manual keyboard notes take priority.
+  //  int note = 60;
+  //  int velocity = 100;
 
-	float frequency = 440.0f * powf(2.0f, (note - 69) / 12.0f);
-	float increment = (frequency * WAVETABLE_SIZE) / SAMPLE_RATE;
-	float amplitude = MAX_AMPLITUDE * (velocity / 127.0f);
+  float frequency = 440.0f * powf(2.0f, (note - 69) / 12.0f);
+  //  float increment = (frequency * WAVETABLE_SIZE) / SAMPLE_RATE;
+  float amplitude = MAX_AMPLITUDE * (velocity / 127.0f);
 
-	portENTER_CRITICAL(&synthMux);
+  portENTER_CRITICAL(&synthMux);
 
-	activeNote = note;
-	targetPhaseIncrement = increment;
-	targetAmplitude = amplitude;
+  activeNote = note;
+  targetPhaseIncrement = computePhaseIncrement(activeNote, pitchBendSemitones);
+  targetAmplitude = amplitude;
 
-	portEXIT_CRITICAL(&synthMux);
+  portEXIT_CRITICAL(&synthMux);
+}
+
+void audio_set_note(int note, int velocity) {
+  updateSynthVoice(note, velocity);
+}
+
+void audio_set_pitchbend_range(float semitones) {
+  portENTER_CRITICAL(&synthMux);
+  pitchBendRange = semitones;
+  portEXIT_CRITICAL(&synthMux);
+}
+
+void audio_set_pitchbend(float value) {
+  
+  if (value > 1.0f) value = 1.0f;
+  if (value < -1.0f) value = -1.0f;
+
+  portENTER_CRITICAL(&synthMux);
+
+  pitchBendSemitones = value * pitchBendRange;
+  if (activeNote >= 0) {
+    targetPhaseIncrement = computePhaseIncrement(activeNote, pitchBendSemitones);
+  }
+
+  portEXIT_CRITICAL(&synthMux);
 }
 
 void audioTask(void* parameter) {
@@ -153,14 +189,14 @@ void audioTask(void* parameter) {
 
     for (int i = 0; i < BLOCK_FRAMES; i++) {
 
-			phaseIncrement = blockPhaseIncrement;
-			currentAmplitude = blockTargetAmplitude;
+      phaseIncrement = blockPhaseIncrement;
+      currentAmplitude = blockTargetAmplitude;
 
       float sample = 0.0f;
 
-			float oscillatorSample = getOscillatorSample();
+      float oscillatorSample = getOscillatorSample();
 
-			sample = oscillatorSample * currentAmplitude;
+      sample = oscillatorSample * currentAmplitude;
 
       int16_t pcm = (int16_t)(sample * 32767.0f);
 
@@ -215,10 +251,10 @@ void audio_start() {
     }
   }
 
-  updateSynthVoice();
+  updateSynthVoice(60, 100);
 }
 
-void audio_loop() {
+/* void audio_loop() {
 
   delay(2000);
 
@@ -227,4 +263,4 @@ void audio_loop() {
   portEXIT_CRITICAL(&synthMux);
 
   Serial.println(currentWaveform == WAVE_SAW ? "SAW" : "SQUARE");
-}
+  } */

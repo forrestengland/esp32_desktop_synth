@@ -9,6 +9,14 @@
 #include "buttons.h"
 #include "usb_midi.h"
 
+void on_din_noteon(uint8_t channel, uint8_t note, uint8_t vel) {
+	audio_set_note(note, vel);
+}
+
+void on_din_pitchbend(uint8_t channel, float val) {
+	audio_set_pitchbend(val);
+}
+
 void setup() {
 
   Serial.begin(115200);
@@ -30,6 +38,9 @@ void setup() {
 	buttons_init();
 
 	usb_midi_init();
+
+	din_midi_set_noteon_callback(on_din_noteon);
+	din_midi_set_pitchbend_callback(on_din_pitchbend);
 }
 
 void loop() {
@@ -38,7 +49,7 @@ void loop() {
 
 		unsigned char data = din_midi_read();
 
-		Serial.printf("%02x ", data);
+		//		Serial.printf("%02x ", data);
 
 		din_midi_write(data);
 	}

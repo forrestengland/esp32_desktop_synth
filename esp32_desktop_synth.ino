@@ -41,6 +41,9 @@ void setup() {
 
 	din_midi_set_noteon_callback(on_din_noteon);
 	din_midi_set_pitchbend_callback(on_din_pitchbend);
+
+	audio_set_attack(0.3f);
+	audio_set_release(0.7f);
 }
 
 void loop() {

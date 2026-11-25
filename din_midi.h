@@ -88,7 +88,7 @@ unsigned char din_midi_read() {
 	  //		   "din_midi: got note on: channel %d, note %d, vel %d\n", channel, last_data1_byte, last_data2_byte);
 	  //	  Serial.print(din_midi_debug_message);
 
-	  if (din_midi_noteon_cbk     ) {
+	  if (din_midi_noteon_cbk) {
 	    din_midi_noteon_cbk(channel, last_data1_byte, last_data2_byte);
 	  }
 	  
@@ -118,6 +118,11 @@ unsigned char din_midi_read() {
 	  //	  snprintf(din_midi_debug_message, DIN_MIDI_DEBUG_MESSAGE_SIZE,
 	  //		   "din_midi: got note off: channel %d, note %d, vel %d\n", channel, last_data1_byte, last_data2_byte);
 	  //	  Serial.print(din_midi_debug_message);
+
+	  if (din_midi_noteon_cbk) {
+	    din_midi_noteon_cbk(channel, last_data1_byte, 0);
+	  }
+	  
 	  last_status_byte = 0;
 	  last_data1_byte = 0;
 	  last_data2_byte = 0;

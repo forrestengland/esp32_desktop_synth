@@ -9,8 +9,6 @@ constexpr int I2S_BCLK = 5;
 constexpr int I2S_LRCK = 6;
 constexpr int I2S_DOUT = 7;
 
-float targetPhaseIncrement = 0.0f;
-
 // -------- Audio settings --------
 constexpr int SAMPLE_RATE = 44100;
 constexpr int BLOCK_FRAMES = 128;
@@ -30,6 +28,13 @@ Waveform currentWaveform = WAVE_SAW;
 float sawTable[WAVETABLE_SIZE];
 float squareTable[WAVETABLE_SIZE];
 
+// ---------AR envelope -------
+enum EnvStage {
+  ENV_IDLE,
+  ENV_ATTACK,
+  ENV_RELEASE
+};
+
 // Protect shared audio parameters between tasks
 portMUX_TYPE synthMux = portMUX_INITIALIZER_UNLOCKED;
 
@@ -37,13 +42,20 @@ int activeNote = -1;
 float pitchBendSemitones = 0.0f;
 float pitchBendRange = 12.0f;
 
+float targetPhaseIncrement = 0.0f;
 float targetAmplitude = 0.0f;
-float currentAmplitude = 0.0f;
+
+// envelope state & rates (per-sample linear step)
+EnvStage envStage = ENV_IDLE;
+float envLevel = 0.0f;
+float attackTimeSec = 0.01f;
+float releaseTimeSec = 0.20f;
+float attackStep = 1.0f / (0.01f * SAMPLE_RATE);
+float releaseStep = 1.0f / (0.2f * SAMPLE_RATE);
+
+// audio task only oscillator state
 float phase = 0.0f;
 float phaseIncrement = 0.0f;
-
-int manualNote = -1;
-int manualVelocity = 0;
 
 // -------- I2S driver --------
 i2s_chan_handle_t txHandle = nullptr;
@@ -82,6 +94,27 @@ float getOscillatorSample() {
   }
 
   return sample;
+}
+
+// ------------ envelope controls ---------
+void audio_set_attack(float seconds) {
+
+  if (seconds < 0.001f) seconds = 1.001f;
+
+  portENTER_CRITICAL(&synthMux);
+  attackTimeSec = seconds;
+  attackStep = 1.0f / (attackTimeSec * SAMPLE_RATE);
+  portEXIT_CRITICAL(&synthMux);
+}
+
+void audio_set_release(float seconds) {
+
+  if (seconds < 0.001f) seconds = 0.001f;
+
+  portENTER_CRITICAL(&synthMux);
+  releaseTimeSec = seconds;
+  releaseStep = 1.0f / (releaseTimeSec * SAMPLE_RATE);
+  portEXIT_CRITICAL(&synthMux);
 }
 
 void audio_init() {
@@ -129,25 +162,31 @@ void audio_init() {
 
 void updateSynthVoice(int note, int velocity) {
 
-  // Manual keyboard notes take priority.
-  //  int note = 60;
-  //  int velocity = 100;
-
-  float frequency = 440.0f * powf(2.0f, (note - 69) / 12.0f);
-  //  float increment = (frequency * WAVETABLE_SIZE) / SAMPLE_RATE;
-  float amplitude = MAX_AMPLITUDE * (velocity / 127.0f);
-
   portENTER_CRITICAL(&synthMux);
 
-  activeNote = note;
-  targetPhaseIncrement = computePhaseIncrement(activeNote, pitchBendSemitones);
-  targetAmplitude = amplitude;
+  if (velocity > 0) {
+    activeNote = note;
+    targetPhaseIncrement = computePhaseIncrement(activeNote, pitchBendSemitones);
+    targetAmplitude = MAX_AMPLITUDE * (velocity / 127.0f);
+    envStage = ENV_ATTACK;
+  } else {
+    // note off (velocity == 0)
+    // only release if matches current note
+    if (note == activeNote && envStage != ENV_IDLE) {
+      envStage = ENV_RELEASE;
+      activeNote = -1;
+    }
+  }
 
   portEXIT_CRITICAL(&synthMux);
 }
 
 void audio_set_note(int note, int velocity) {
   updateSynthVoice(note, velocity);
+}
+
+void audio_note_off(int note) {
+  updateSynthVoice(note, 0);
 }
 
 void audio_set_pitchbend_range(float semitones) {
@@ -179,24 +218,43 @@ void audioTask(void* parameter) {
 
     float blockTargetAmplitude;
     float blockPhaseIncrement;
+    float blockAttackStep;
+    float blockReleaseStep;
+    EnvStage stage;
 
     portENTER_CRITICAL(&synthMux);
 
     blockTargetAmplitude = targetAmplitude;
-		blockPhaseIncrement = targetPhaseIncrement;
+    blockPhaseIncrement = targetPhaseIncrement;
+    blockAttackStep = attackStep;
+    blockReleaseStep = releaseStep;
+    stage = envStage;
 
     portEXIT_CRITICAL(&synthMux);
 
     for (int i = 0; i < BLOCK_FRAMES; i++) {
 
-      phaseIncrement = blockPhaseIncrement;
-      currentAmplitude = blockTargetAmplitude;
+      //      phaseIncrement = blockPhaseIncrement;
+      // smooth pitch updates to prevent zipper noise
+      phaseIncrement += 0.01f * (blockPhaseIncrement - phaseIncrement);
 
+      if (stage == ENV_ATTACK) {
+	envLevel += blockAttackStep * blockTargetAmplitude;
+	if (envLevel >= blockTargetAmplitude) {
+	  envLevel = blockTargetAmplitude;
+	}
+      } else if (stage == ENV_RELEASE) {
+	envLevel -= blockReleaseStep * blockTargetAmplitude;
+	if (envLevel <= 0.0f) {
+	  envLevel = 0.0f;
+	  stage = ENV_IDLE;
+	}
+      }
+      
       float sample = 0.0f;
-
-      float oscillatorSample = getOscillatorSample();
-
-      sample = oscillatorSample * currentAmplitude;
+      if (envLevel > 0.0f) {
+	sample = getOscillatorSample() * envLevel;
+      }
 
       int16_t pcm = (int16_t)(sample * 32767.0f);
 
@@ -205,6 +263,13 @@ void audioTask(void* parameter) {
       buffer[i * 2 + 1] = pcm;
 
     }
+
+    // Write back stage transition if release finished mid-block
+    portENTER_CRITICAL(&synthMux);
+    if (envStage == ENV_RELEASE && stage == ENV_IDLE) {
+      envStage = ENV_IDLE;
+    }
+    portEXIT_CRITICAL(&synthMux);    
 
     size_t bytesWritten = 0;
 

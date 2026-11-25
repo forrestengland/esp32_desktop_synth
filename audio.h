@@ -4,7 +4,10 @@
 
 #include "driver/i2s_std.h"
 
+constexpr int SAMPLE_RATE = 44100;
+
 #include "wavetable_osc.h"
+#include "ar_envelope.h"
 
 // -------- I2S wiring --------
 constexpr int I2S_BCLK = 5;
@@ -12,19 +15,13 @@ constexpr int I2S_LRCK = 6;
 constexpr int I2S_DOUT = 7;
 
 // -------- Audio settings --------
-constexpr int SAMPLE_RATE = 44100;
 constexpr int BLOCK_FRAMES = 128;
 constexpr float MAX_AMPLITUDE = 0.25f;
 
 // wavetable osc
 wavetable_osc osc;
 
-// ---------AR envelope -------
-enum EnvStage {
-  ENV_IDLE,
-  ENV_ATTACK,
-  ENV_RELEASE
-};
+ar_envelope env;
 
 // Protect shared audio parameters between tasks
 portMUX_TYPE synthMux = portMUX_INITIALIZER_UNLOCKED;
@@ -32,16 +29,6 @@ portMUX_TYPE synthMux = portMUX_INITIALIZER_UNLOCKED;
 int activeNote = -1;
 float pitchBendSemitones = 0.0f;
 float pitchBendRange = 12.0f;
-
-float targetAmplitude = 0.0f;
-
-// envelope state & rates (per-sample linear step)
-EnvStage envStage = ENV_IDLE;
-float envLevel = 0.0f;
-float attackTimeSec = 0.01f;
-float releaseTimeSec = 0.20f;
-float attackStep = 1.0f / (0.01f * SAMPLE_RATE);
-float releaseStep = 1.0f / (0.2f * SAMPLE_RATE);
 
 // -------- I2S driver --------
 i2s_chan_handle_t txHandle = nullptr;
@@ -57,27 +44,22 @@ inline float computePhaseIncrement(int note, float bendSemitones) {
 // ------------ envelope controls ---------
 void audio_set_attack(float seconds) {
 
-  if (seconds < 0.001f) seconds = 0.001f;
-
   portENTER_CRITICAL(&synthMux);
-  attackTimeSec = seconds;
-  attackStep = 1.0f / (attackTimeSec * SAMPLE_RATE);
+  ar_envelope_set_attack(&env, seconds);
   portEXIT_CRITICAL(&synthMux);
 }
 
 void audio_set_release(float seconds) {
 
-  if (seconds < 0.001f) seconds = 0.001f;
-
   portENTER_CRITICAL(&synthMux);
-  releaseTimeSec = seconds;
-  releaseStep = 1.0f / (releaseTimeSec * SAMPLE_RATE);
+  ar_envelope_set_release(&env, seconds);
   portEXIT_CRITICAL(&synthMux);
 }
 
 void audio_init() {
 
   wavetable_osc_init(&osc);
+  ar_envelope_init(&env);
   
   i2s_chan_config_t chanConfig =
       I2S_CHANNEL_DEFAULT_CONFIG(
@@ -128,11 +110,11 @@ void updateSynthVoice(int note, int velocity) {
     activeNote = note;
     float targetPhaseIncrement = computePhaseIncrement(activeNote, pitchBendSemitones);
     wavetable_osc_set_phase_increment(&osc, targetPhaseIncrement);
-    targetAmplitude = MAX_AMPLITUDE * (velocity / 127.0f);
-    envStage = ENV_ATTACK;
+    env.target_amplitude = MAX_AMPLITUDE * (velocity / 127.0f);
+    ar_envelope_set_gate(&env, 1);
   } else {
-    if (note == activeNote && envStage != ENV_IDLE) {
-      envStage = ENV_RELEASE;
+    if (note == activeNote && env.stage != ENV_IDLE) {
+      ar_envelope_set_gate(&env, 0);
       activeNote = -1;
     }
   }
@@ -176,19 +158,10 @@ void audioTask(void* parameter) {
 
   for (;;) {
 
-    float blockTargetAmplitude;
-    float blockAttackStep;
-    float blockReleaseStep;
-    EnvStage stage;
-
     portENTER_CRITICAL(&synthMux);
 
     wavetable_osc_audio_setup(&osc);
-
-    blockTargetAmplitude = targetAmplitude;
-    blockAttackStep = attackStep;
-    blockReleaseStep = releaseStep;
-    stage = envStage;
+    ar_envelope_audio_setup(&env);
 
     portEXIT_CRITICAL(&synthMux);
 
@@ -196,22 +169,11 @@ void audioTask(void* parameter) {
 
       wavetable_osc_sample_begin(&osc);
 
-      if (stage == ENV_ATTACK) {
-	envLevel += blockAttackStep * blockTargetAmplitude;
-	if (envLevel >= blockTargetAmplitude) {
-	  envLevel = blockTargetAmplitude;
-	}
-      } else if (stage == ENV_RELEASE) {
-	envLevel -= blockReleaseStep * blockTargetAmplitude;
-	if (envLevel <= 0.0f) {
-	  envLevel = 0.0f;
-	  stage = ENV_IDLE;
-	}
-      }
+      ar_envelope_sample_begin(&env);
       
       float sample = 0.0f;
-      if (envLevel > 0.0f) {
-	sample = wavetable_osc_get_sample(&osc) * envLevel;
+      if (env.level > 0.0f) {
+	sample = wavetable_osc_get_sample(&osc) * env.level;
       }
 
       int16_t pcm = (int16_t)(sample * 32767.0f);
@@ -224,9 +186,7 @@ void audioTask(void* parameter) {
 
     // Write back stage transition if release finished mid-block
     portENTER_CRITICAL(&synthMux);
-    if (envStage == ENV_RELEASE && stage == ENV_IDLE) {
-      envStage = ENV_IDLE;
-    }
+    ar_envelope_audio_cleanup(&env);
     portEXIT_CRITICAL(&synthMux);    
 
     size_t bytesWritten = 0;

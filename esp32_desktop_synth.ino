@@ -6,6 +6,7 @@
 #include "oled.h"
 #include "encoders.h"
 #include "buttons.h"
+#include "usb_midi.h"
 
 void setup() {
 
@@ -26,6 +27,8 @@ void setup() {
 	encoders_init();
 
 	buttons_init();
+
+	usb_midi_init();
 }
 
 void loop() {
@@ -47,4 +50,6 @@ void loop() {
 	encoders_loop();
 
 	buttons_loop();
+
+	usb_midi_loop();
 }

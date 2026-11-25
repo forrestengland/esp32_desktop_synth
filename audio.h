@@ -4,6 +4,8 @@
 
 #include "driver/i2s_std.h"
 
+#include "wavetable_osc.h"
+
 // -------- I2S wiring --------
 constexpr int I2S_BCLK = 5;
 constexpr int I2S_LRCK = 6;
@@ -15,18 +17,7 @@ constexpr int BLOCK_FRAMES = 128;
 constexpr float MAX_AMPLITUDE = 0.25f;
 
 // wavetable osc
-enum Waveform {
-    WAVE_SAW,
-    WAVE_SQUARE
-};
-
-Waveform currentWaveform = WAVE_SAW;
-
-// -------- Wavetable settings --------
-#define WAVETABLE_SIZE 1024
-
-float sawTable[WAVETABLE_SIZE];
-float squareTable[WAVETABLE_SIZE];
+wavetable_osc osc;
 
 // ---------AR envelope -------
 enum EnvStage {
@@ -42,7 +33,6 @@ int activeNote = -1;
 float pitchBendSemitones = 0.0f;
 float pitchBendRange = 12.0f;
 
-float targetPhaseIncrement = 0.0f;
 float targetAmplitude = 0.0f;
 
 // envelope state & rates (per-sample linear step)
@@ -53,10 +43,6 @@ float releaseTimeSec = 0.20f;
 float attackStep = 1.0f / (0.01f * SAMPLE_RATE);
 float releaseStep = 1.0f / (0.2f * SAMPLE_RATE);
 
-// audio task only oscillator state
-float phase = 0.0f;
-float phaseIncrement = 0.0f;
-
 // -------- I2S driver --------
 i2s_chan_handle_t txHandle = nullptr;
 
@@ -65,41 +51,13 @@ inline float computePhaseIncrement(int note, float bendSemitones) {
   if (note < 0) return 0.0f;
   float effectiveNote = (float)note + bendSemitones;
   float frequency = 440.0f * powf(2.0f, (effectiveNote - 69.0f) / 12.0f);
-  return (frequency * WAVETABLE_SIZE) / SAMPLE_RATE;
-}
-
-float getOscillatorSample() {
-
-  int index = (int)phase;
-  float fraction = phase - index;
-
-  int nextIndex = index + 1;
-
-  if (nextIndex >= WAVETABLE_SIZE) {
-    nextIndex = 0;
-  }
-
-  float* table =
-      (currentWaveform == WAVE_SAW)
-      ? sawTable
-      : squareTable;
-
-  float sample = table[index] +
-      (table[nextIndex] - table[index]) * fraction;
-
-  phase += phaseIncrement;
-
-  while (phase >= WAVETABLE_SIZE) {
-    phase -= WAVETABLE_SIZE;
-  }
-
-  return sample;
+  return (frequency * WAVETABLE_OSC_SIZE) / SAMPLE_RATE;
 }
 
 // ------------ envelope controls ---------
 void audio_set_attack(float seconds) {
 
-  if (seconds < 0.001f) seconds = 1.001f;
+  if (seconds < 0.001f) seconds = 0.001f;
 
   portENTER_CRITICAL(&synthMux);
   attackTimeSec = seconds;
@@ -118,6 +76,8 @@ void audio_set_release(float seconds) {
 }
 
 void audio_init() {
+
+  wavetable_osc_init(&osc);
   
   i2s_chan_config_t chanConfig =
       I2S_CHANNEL_DEFAULT_CONFIG(
@@ -157,7 +117,7 @@ void audio_init() {
 
   ESP_ERROR_CHECK(i2s_channel_enable(txHandle));
 
-	Serial.println("I2S audio started.");
+  Serial.println("I2S audio started.");
 }
 
 void updateSynthVoice(int note, int velocity) {
@@ -166,12 +126,11 @@ void updateSynthVoice(int note, int velocity) {
 
   if (velocity > 0) {
     activeNote = note;
-    targetPhaseIncrement = computePhaseIncrement(activeNote, pitchBendSemitones);
+    float targetPhaseIncrement = computePhaseIncrement(activeNote, pitchBendSemitones);
+    wavetable_osc_set_phase_increment(&osc, targetPhaseIncrement);
     targetAmplitude = MAX_AMPLITUDE * (velocity / 127.0f);
     envStage = ENV_ATTACK;
   } else {
-    // note off (velocity == 0)
-    // only release if matches current note
     if (note == activeNote && envStage != ENV_IDLE) {
       envStage = ENV_RELEASE;
       activeNote = -1;
@@ -204,7 +163,8 @@ void audio_set_pitchbend(float value) {
 
   pitchBendSemitones = value * pitchBendRange;
   if (activeNote >= 0) {
-    targetPhaseIncrement = computePhaseIncrement(activeNote, pitchBendSemitones);
+    float targetPhaseIncrement = computePhaseIncrement(activeNote, pitchBendSemitones);
+    wavetable_osc_set_phase_increment(&osc, targetPhaseIncrement);
   }
 
   portEXIT_CRITICAL(&synthMux);
@@ -214,18 +174,18 @@ void audioTask(void* parameter) {
 	
   int16_t buffer[BLOCK_FRAMES * 2];
 
-	for (;;) {
+  for (;;) {
 
     float blockTargetAmplitude;
-    float blockPhaseIncrement;
     float blockAttackStep;
     float blockReleaseStep;
     EnvStage stage;
 
     portENTER_CRITICAL(&synthMux);
 
+    wavetable_osc_audio_setup(&osc);
+
     blockTargetAmplitude = targetAmplitude;
-    blockPhaseIncrement = targetPhaseIncrement;
     blockAttackStep = attackStep;
     blockReleaseStep = releaseStep;
     stage = envStage;
@@ -234,9 +194,7 @@ void audioTask(void* parameter) {
 
     for (int i = 0; i < BLOCK_FRAMES; i++) {
 
-      //      phaseIncrement = blockPhaseIncrement;
-      // smooth pitch updates to prevent zipper noise
-      phaseIncrement += 0.01f * (blockPhaseIncrement - phaseIncrement);
+      wavetable_osc_sample_begin(&osc);
 
       if (stage == ENV_ATTACK) {
 	envLevel += blockAttackStep * blockTargetAmplitude;
@@ -253,7 +211,7 @@ void audioTask(void* parameter) {
       
       float sample = 0.0f;
       if (envLevel > 0.0f) {
-	sample = getOscillatorSample() * envLevel;
+	sample = wavetable_osc_get_sample(&osc) * envLevel;
       }
 
       int16_t pcm = (int16_t)(sample * 32767.0f);
@@ -283,26 +241,11 @@ void audioTask(void* parameter) {
   }
 }
 
-void initializeWavetables() {
-
-  for (int i = 0; i < WAVETABLE_SIZE; i++) {
-    float position = (float)i / WAVETABLE_SIZE;
-
-    // Sawtooth: -1.0 to nearly +1.0
-    sawTable[i] = (2.0f * position) - 1.0f;
-
-    // Square: first half positive, second half negative
-    squareTable[i] = (position < 0.5f) ? 1.0f : -1.0f;
-  }
-
-  Serial.println("Wavetables initialized.");
-}
-
 void audio_start() {
 
-  initializeWavetables();
-
+  //  initializeWavetables();
   audio_init();
+  //  updateSynthVoice(60, 100);
 
   BaseType_t taskResult = xTaskCreatePinnedToCore(audioTask, "AudioTask",
 						  4096, nullptr, 3,
@@ -315,17 +258,4 @@ void audio_start() {
       delay(1000);
     }
   }
-
-  updateSynthVoice(60, 100);
 }
-
-/* void audio_loop() {
-
-  delay(2000);
-
-  portENTER_CRITICAL(&synthMux);
-  currentWaveform = (currentWaveform == WAVE_SAW) ? WAVE_SQUARE : WAVE_SAW;
-  portEXIT_CRITICAL(&synthMux);
-
-  Serial.println(currentWaveform == WAVE_SAW ? "SAW" : "SQUARE");
-  } */

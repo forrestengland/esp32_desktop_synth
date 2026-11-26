@@ -9,6 +9,11 @@ constexpr int SAMPLE_RATE = 44100;
 #include "wavetable_osc.h"
 #include "ar_envelope.h"
 
+#define DISPSAMPLECOUNT 128
+float dispsamples[128];
+int dispsamplehead = 0;
+
+
 // -------- I2S wiring --------
 constexpr int I2S_BCLK = 5;
 constexpr int I2S_LRCK = 6;
@@ -16,12 +21,7 @@ constexpr int I2S_DOUT = 7;
 
 // -------- Audio settings --------
 constexpr int BLOCK_FRAMES = 128;
-constexpr float MAX_AMPLITUDE = 0.25f;
-
-// wavetable osc
-wavetable_osc osc;
-
-ar_envelope env;
+constexpr float MAX_AMPLITUDE = 0.20f;
 
 // Protect shared audio parameters between tasks
 portMUX_TYPE synthMux = portMUX_INITIALIZER_UNLOCKED;
@@ -33,6 +33,22 @@ float pitchBendRange = 12.0f;
 // -------- I2S driver --------
 i2s_chan_handle_t txHandle = nullptr;
 
+// synth voice
+typedef struct {
+  wavetable_osc osc;
+  ar_envelope env;
+  int note;
+} synthvoice;
+#define VOICES 4
+synthvoice voice[VOICES];
+int nextvoice = 0;
+
+void synthvoice_init(synthvoice * v) {
+  wavetable_osc_init(&v->osc);
+  ar_envelope_init(&v->env);
+  v->note = -1;
+}
+
 // compute phase increment from note + bend
 inline float computePhaseIncrement(int note, float bendSemitones) {
   if (note < 0) return 0.0f;
@@ -42,32 +58,43 @@ inline float computePhaseIncrement(int note, float bendSemitones) {
 }
 
 void audio_set_wavetable(int table) {
-  wavetable_osc_set_table(&osc, table);
+  for (int v=0; v<VOICES; v++) {
+    wavetable_osc_set_table(&voice[v].osc, table);
+  }
 }
 
 void audio_set_env_mode(int mode) {
-  env.mode = mode;
+  for (int v=0; v<VOICES; v++) {
+    voice[v].env.mode = mode;
+  }
 }
 
 // ------------ envelope controls ---------
 void audio_set_attack(float seconds) {
 
   portENTER_CRITICAL(&synthMux);
-  ar_envelope_set_attack(&env, seconds);
+  for (int v=0; v<VOICES; v++) {  
+    ar_envelope_set_attack(&voice[v].env, seconds);
+  }
   portEXIT_CRITICAL(&synthMux);
 }
 
 void audio_set_release(float seconds) {
 
   portENTER_CRITICAL(&synthMux);
-  ar_envelope_set_release(&env, seconds);
+  for (int v=0; v<VOICES; v++) {
+    ar_envelope_set_release(&voice[v].env, seconds);
+  }
   portEXIT_CRITICAL(&synthMux);
 }
 
 void audio_init() {
 
-  wavetable_osc_init(&osc);
-  ar_envelope_init(&env);
+  //  wavetable_osc_init(&osc);
+  //  ar_envelope_init(&env);
+  for (int v=0; v<VOICES; v++) {
+    synthvoice_init(&voice[v]);
+  }
   
   i2s_chan_config_t chanConfig =
       I2S_CHANNEL_DEFAULT_CONFIG(
@@ -115,15 +142,31 @@ void updateSynthVoice(int note, int velocity) {
   portENTER_CRITICAL(&synthMux);
 
   if (velocity > 0) {
-    activeNote = note;
-    float targetPhaseIncrement = computePhaseIncrement(activeNote, pitchBendSemitones);
-    wavetable_osc_set_phase_increment(&osc, targetPhaseIncrement);
-    env.target_amplitude = MAX_AMPLITUDE * (velocity / 127.0f);
-    ar_envelope_set_gate(&env, 1);
+
+    int vn = -1;
+    for (int v=0; v<VOICES; v++) {
+      if (voice[v].note == note || voice[v].env.stage == ENV_IDLE) {
+	vn = v;
+	break;
+      }
+    }
+
+    if (vn < 0) {
+      vn = nextvoice;
+      nextvoice = (nextvoice + 1) % VOICES;
+    }
+    
+    float targetPhaseIncrement = computePhaseIncrement(note, pitchBendSemitones);
+    wavetable_osc_set_phase_increment(&voice[vn].osc, targetPhaseIncrement);
+    voice[vn].env.target_amplitude = MAX_AMPLITUDE * (velocity / 127.0f);
+    ar_envelope_set_gate(&voice[vn].env, 1);
+    voice[vn].note = note;
   } else {
-    if (note == activeNote && env.stage != ENV_IDLE) {
-      ar_envelope_set_gate(&env, 0);
-      activeNote = -1;
+    for (int v=0; v<VOICES; v++) {
+      if (note == voice[v].note && voice[v].env.stage != ENV_IDLE) {
+	ar_envelope_set_gate(&voice[v].env, 0);
+	//	activeNote = -1;
+      }
     }
   }
 
@@ -152,9 +195,12 @@ void audio_set_pitchbend(float value) {
   portENTER_CRITICAL(&synthMux);
 
   pitchBendSemitones = value * pitchBendRange;
-  if (activeNote >= 0) {
-    float targetPhaseIncrement = computePhaseIncrement(activeNote, pitchBendSemitones);
-    wavetable_osc_set_phase_increment(&osc, targetPhaseIncrement);
+  //  if (activeNote >= 0) {
+  for (int v=0; v<VOICES; v++) {
+    if (voice[v].note >= 0) {
+      float targetPhaseIncrement = computePhaseIncrement(voice[v].note, pitchBendSemitones);
+      wavetable_osc_set_phase_increment(&voice[v].osc, targetPhaseIncrement);
+    }
   }
 
   portEXIT_CRITICAL(&synthMux);
@@ -168,23 +214,35 @@ void audioTask(void* parameter) {
 
     portENTER_CRITICAL(&synthMux);
 
-    wavetable_osc_audio_setup(&osc);
-    ar_envelope_audio_setup(&env);
+    for (int v=0; v<VOICES; v++) {
+      wavetable_osc_audio_setup(&voice[v].osc);
+      ar_envelope_audio_setup(&voice[v].env);
+    }
 
     portEXIT_CRITICAL(&synthMux);
 
     for (int i = 0; i < BLOCK_FRAMES; i++) {
-
-      wavetable_osc_sample_begin(&osc);
-
-      ar_envelope_sample_begin(&env);
+      
+      for (int v=0; v<VOICES; v++) {
+	wavetable_osc_sample_begin(&voice[v].osc);
+	ar_envelope_sample_begin(&voice[v].env);
+      }
       
       float sample = 0.0f;
-      if (env.level > 0.0f) {
-	sample = wavetable_osc_get_sample(&osc) * env.level;
+
+      for (int v=0; v<VOICES; v++) {
+	if (voice[v].env.level > 0.0f) {
+	  sample += wavetable_osc_get_sample(&voice[v].osc) * voice[v].env.level;
+	}
       }
 
+      if (sample > 1.0) sample = 1.0;
+      if (sample < -1.0) sample = -1.0;
+
       int16_t pcm = (int16_t)(sample * 32767.0f);
+
+      dispsamples[dispsamplehead] = sample;
+      dispsamplehead = (dispsamplehead + 1) % DISPSAMPLECOUNT;
 
       // Duplicate mono signal to left and right.
       buffer[i * 2] = pcm;
@@ -194,7 +252,9 @@ void audioTask(void* parameter) {
 
     // Write back stage transition if release finished mid-block
     portENTER_CRITICAL(&synthMux);
-    ar_envelope_audio_cleanup(&env);
+    for (int v=0; v<VOICES; v++) {
+      ar_envelope_audio_cleanup(&voice[v].env);
+    }
     portEXIT_CRITICAL(&synthMux);    
 
     size_t bytesWritten = 0;

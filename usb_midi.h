@@ -67,21 +67,17 @@ void usb_midi_process() {
       if (usb_midi_noteon_cbk) usb_midi_noteon_cbk(channel, note, 0);
     } else if (status == 0xF0) { // control change
     } else if (status == 0xe0) { // pitch bend
+
+      // ev.pitchBend14 is already decoded: 0 .. 16383 (center = 8192)
+      int16_t signedBend = (int16_t)ev.pitchBend14 - 8192;
+
+      // Normalize to -1.0f .. +1.0f for audio_set_pitchbend()
+      float normalizedBend = (signedBend >= 0)
+	? (signedBend / 8191.0f)
+	: (signedBend / 8192.0f);
+
       // low 4 bits of status byte are midi channel
       int channel = ev.statusCode & 0x0F;
-      int msb = velocity;
-      int lsb = note;
-
-      // 2. Combine LSB and MSB into an unsigned 14-bit integer (0 .. 16383)
-      uint16_t raw_bend = ((uint16_t)(msb & 0x7F) << 7) | (lsb & 0x7F);
-
-      // 3. Center around 0 (-8192 .. +8191)
-      int16_t signed_bend = (int16_t)raw_bend - 8192;
-
-      // 4. Optional: Normalize to -1.0f .. +1.0f for DSP/synth pitch scaling
-      float normalized_bend = (signed_bend >= 0)
-	? (signed_bend / 8191.0f)
-	: (signed_bend / 8192.0f);	  
 
       // have complete pitch bend message.
       //	  snprintf(din_midi_debug_message, DIN_MIDI_DEBUG_MESSAGE_SIZE,
@@ -89,7 +85,7 @@ void usb_midi_process() {
       //	  Serial.print(din_midi_debug_message);
 
       if (usb_midi_pitchbend_cbk) {
-	usb_midi_pitchbend_cbk(channel, normalized_bend);
+	usb_midi_pitchbend_cbk(channel, normalizedBend);
       }
     }
   }

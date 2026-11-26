@@ -57,30 +57,12 @@ void oled_loop() {
   static uint32_t counter = 0;
 
   display.clearDisplay();
-  display.drawRect(0, 0, 128, 64, SSD1306_WHITE);
 
-  // Step-grid style cells, same look as the sequencer
-  for (int i = 0; i < 32; i++) {
-    int cx = 2 + (i % 8) * 16;
-    int cy = 11 + (i / 8) * 11;
-    if (i % 3 == 0) display.fillRect(cx, cy, 7, 7, SSD1306_WHITE);
-    else display.drawPixel(cx + 3, cy + 3, SSD1306_WHITE);
+  for (x=0; x<128; x++) {
+    int y = dispsamples[x] * 32 + 32;
+    display.drawPixel(x, y, SSD1306_WHITE);
   }
-
-  // Moving marker shows whether refresh is smooth
-  x += dx;
-  if (x <= 0 || x >= 120) dx = -dx;
-  display.fillRect(x, 56, 8, 5, SSD1306_WHITE);
-
-  display.setCursor(4, 2);
-  display.print(counter++);
 
   display.display();
   frames++;
-
-  /*  if (millis() - lastFpsMs >= 1000) {
-    Serial.printf("%lu fps\n", (unsigned long)frames);
-    frames = 0;
-    lastFpsMs = millis();
-    } */
 }

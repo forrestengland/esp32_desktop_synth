@@ -4,6 +4,10 @@
 #include <Wire.h>
 #include <Adafruit_ADS1X15.h>
 
+typedef void (*pots_callback)(int pot, float value);
+
+pots_callback pots_cbk = 0;
+
 #define I2C_SDA 11
 #define I2C_SCL 12
 
@@ -12,6 +16,10 @@ Adafruit_ADS1115 ads;
 int16_t minRaw[4] = {32767, 32767, 32767, 32767};
 int16_t maxRaw[4] = {-32768, -32768, -32768, -32768};
 float potval[4];
+
+void pots_set_callback(pots_callback cbk) {
+  pots_cbk = cbk;
+}
 
 void pots_init() {
 
@@ -45,9 +53,11 @@ void pots_loop() {
     for (int ch = 0; ch < 4; ch++) {
       float norm = constrain(raw[ch] / 26400.0f, 0.0f, 1.0f);
       if (potval[ch] != norm) {
-	Serial.printf("P%d raw %5d (%.3f) [%5d..%5d]\n",
-		      ch, raw[ch], norm, minRaw[ch], maxRaw[ch]);
+	//	Serial.printf("P%d raw %5d (%.3f) [%5d..%5d]\n",
+	//		      ch, raw[ch], norm, minRaw[ch], maxRaw[ch]);
 	potval[ch] = norm;
+	if (pots_cbk) pots_cbk(ch, norm);
+	
       }
     }
   }

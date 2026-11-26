@@ -22,12 +22,21 @@ void on_usb_noteon(uint8_t channel, uint8_t note, uint8_t vel) {
 }
 
 void on_usb_pitchbend(uint8_t channel, float val) {
-	audio_set_pitchbend(val);
+	Serial.printf("got pitchbend: %f\n", val);
+ 	audio_set_pitchbend(val);
 }
 
 void on_button(int button, int state) {
-	//	audio_set_wavetable(state);
-	audio_set_env_mode(state);
+	audio_set_wavetable(state);
+	// audio_set_env_mode(state); doesn't work good with polyphony right now
+}
+
+void on_pots(int pot, float value) {
+	if (pot == 0) {
+		audio_set_attack(1.0 - value);
+	} else if (pot == 1) {
+		audio_set_release(1.0 - value);
+	}
 }
 
 void setup() {
@@ -58,6 +67,8 @@ void setup() {
 
 	usb_midi_set_noteon_callback(on_usb_noteon);
 	usb_midi_set_pitchbend_callback(on_usb_pitchbend);
+
+	pots_set_callback(on_pots);
 
 	audio_set_attack(0.3f);
 	audio_set_release(0.7f);

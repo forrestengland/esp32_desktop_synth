@@ -45,6 +45,10 @@ void audio_set_wavetable(int table) {
   wavetable_osc_set_table(&osc, table);
 }
 
+void audio_set_env_mode(int mode) {
+  env.mode = mode;
+}
+
 // ------------ envelope controls ---------
 void audio_set_attack(float seconds) {
 

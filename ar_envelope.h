@@ -20,6 +20,7 @@ typedef struct {
   float block_attack_step;
   float block_release_step;
   ar_envelope_stage block_stage;
+  int mode;
 } ar_envelope;
 
 void ar_envelope_init(ar_envelope * env) {
@@ -30,6 +31,7 @@ void ar_envelope_init(ar_envelope * env) {
   env->attack_step = 1.0f / (0.01f * SAMPLE_RATE);
   env->release_step = 1.0f / (0.2f * SAMPLE_RATE);
   env->target_amplitude = 0.0f;
+  env->mode = 0;
 }
 
 void ar_envelope_set_attack(ar_envelope * env, float seconds) {
@@ -68,6 +70,9 @@ void ar_envelope_sample_begin(ar_envelope * env) {
     env->level += env->block_attack_step * env->block_target_amplitude;
     if (env->level >= env->block_target_amplitude) {
       env->level = env->block_target_amplitude;
+      if (env->mode) {
+	env->stage = ENV_RELEASE;
+      }
     }
   } else if (env->stage == ENV_RELEASE) {
     env->level -= env->block_release_step * env->block_target_amplitude;

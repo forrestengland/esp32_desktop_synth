@@ -26,7 +26,8 @@ void on_usb_pitchbend(uint8_t channel, float val) {
 }
 
 void on_button(int button, int state) {
-	audio_set_wavetable(state);
+	//	audio_set_wavetable(state);
+	audio_set_env_mode(state);
 }
 
 void setup() {

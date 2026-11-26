@@ -36,6 +36,10 @@ void on_pots(int pot, float value) {
 		audio_set_attack(1.0 - value);
 	} else if (pot == 1) {
 		audio_set_release(1.0 - value);
+	} else if (pot == 2) {
+		audio_set_cutoff((1.0 - value) * 10000.0f);
+	} else if (pot == 3) {
+		audio_set_resonance(1.0 - value);
 	}
 }
 

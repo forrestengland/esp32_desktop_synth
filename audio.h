@@ -4,6 +4,8 @@
 
 #include "driver/i2s_std.h"
 
+#include "moogladder.h"
+
 constexpr int SAMPLE_RATE = 44100;
 
 #include "wavetable_osc.h"
@@ -32,6 +34,8 @@ float pitchBendRange = 12.0f;
 
 // -------- I2S driver --------
 i2s_chan_handle_t txHandle = nullptr;
+
+daisysp::MoogLadder flt;
 
 // synth voice
 typedef struct {
@@ -88,7 +92,19 @@ void audio_set_release(float seconds) {
   portEXIT_CRITICAL(&synthMux);
 }
 
+void audio_set_cutoff(float cutoff) {
+  flt.SetFreq(cutoff);
+}
+
+void audio_set_resonance(float resonance) {
+  flt.SetRes(resonance);
+}
+
 void audio_init() {
+
+  flt.Init(SAMPLE_RATE);
+  flt.SetFreq(500);
+  flt.SetRes(0.5);
 
   //  wavetable_osc_init(&osc);
   //  ar_envelope_init(&env);
@@ -235,6 +251,8 @@ void audioTask(void* parameter) {
 	  sample += wavetable_osc_get_sample(&voice[v].osc) * voice[v].env.level;
 	}
       }
+
+      sample = flt.Process(sample);
 
       if (sample > 1.0) sample = 1.0;
       if (sample < -1.0) sample = -1.0;

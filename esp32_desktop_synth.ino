@@ -25,6 +25,10 @@ void on_usb_pitchbend(uint8_t channel, float val) {
 	audio_set_pitchbend(val);
 }
 
+void on_button(int button, int state) {
+	audio_set_wavetable(state);
+}
+
 void setup() {
 
   Serial.begin(115200);
@@ -49,6 +53,7 @@ void setup() {
 
 	din_midi_set_noteon_callback(on_din_noteon);
 	din_midi_set_pitchbend_callback(on_din_pitchbend);
+	buttons_set_callback(on_button);
 
 	usb_midi_set_noteon_callback(on_usb_noteon);
 	usb_midi_set_pitchbend_callback(on_usb_pitchbend);

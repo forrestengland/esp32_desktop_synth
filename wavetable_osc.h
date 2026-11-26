@@ -22,6 +22,14 @@ typedef struct {
   float block_phase_increment;
 } wavetable_osc;
 
+void wavetable_osc_set_table(wavetable_osc * osc, int table) {
+  if (table) {
+    osc->current_waveform = WAVETABLE_OSC_WAVEFORM_SAW;
+  } else {
+    osc->current_waveform = WAVETABLE_OSC_WAVEFORM_SQUARE;
+  }
+}
+
 void wavetable_osc_initialize_wavetables() {
 
   for (int i = 0; i < WAVETABLE_OSC_SIZE; i++) {

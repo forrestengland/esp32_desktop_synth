@@ -2,6 +2,10 @@
 
 #include <Arduino.h>
 
+typedef void (*buttons_callback)(int button, int state);
+
+buttons_callback buttons_cbk = 0;
+
 struct Input {
   const char* name;
   uint8_t pin;
@@ -22,6 +26,10 @@ Input inputs[] = {
 constexpr int NUM_INPUTS = sizeof(inputs) / sizeof(inputs[0]);
 constexpr uint32_t DEBOUNCE_MS = 20;
 
+void buttons_set_callback(buttons_callback cbk) {
+  buttons_cbk = cbk;
+}
+
 void buttons_init() {
 
   for (int i = 0; i < NUM_INPUTS; i++) {
@@ -39,7 +47,9 @@ void buttons_init() {
 }
 
 void buttons_loop() {
+
   for (int i = 0; i < NUM_INPUTS; i++) {
+
     Input& in = inputs[i];
     bool reading = digitalRead(in.pin);
 
@@ -50,9 +60,12 @@ void buttons_loop() {
 
     if ((millis() - in.lastChange) >= DEBOUNCE_MS && reading != in.stable) {
       in.stable = reading;
-      Serial.printf("%-15s (GPIO %d) -> %s\n",
-                    in.name, in.pin,
-                    reading == LOW ? "LOW / closed" : "HIGH / open");
+      //      Serial.printf("%-15s (GPIO %d) -> %s\n",
+      //                    in.name, in.pin,
+      //                    reading == LOW ? "LOW / closed" : "HIGH / open");
+      if (buttons_cbk) {
+	buttons_cbk(i, reading == LOW ? 1 : 0);
+      }
     }
   }
 }

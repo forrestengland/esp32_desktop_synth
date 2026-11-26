@@ -41,6 +41,10 @@ inline float computePhaseIncrement(int note, float bendSemitones) {
   return (frequency * WAVETABLE_OSC_SIZE) / SAMPLE_RATE;
 }
 
+void audio_set_wavetable(int table) {
+  wavetable_osc_set_table(&osc, table);
+}
+
 // ------------ envelope controls ---------
 void audio_set_attack(float seconds) {
 

@@ -4,6 +4,10 @@
 
 #include "driver/i2s_std.h"
 
+#define CONTROL_RATE 60.0f
+
+float noteFreq[128];
+
 int samplecounter = 0;
 
 constexpr int SAMPLE_RATE = 44100;
@@ -45,7 +49,7 @@ typedef struct {
   float cutoff;
   int note;
 } synthvoice;
-#define VOICES 4
+#define VOICES 5
 synthvoice voice[VOICES];
 int nextvoice = 0;
 
@@ -133,6 +137,10 @@ void audio_set_release(float seconds) {
 }
 
 void audio_init() {
+
+  for (int n = 0; n < 128; n++) {
+    noteFreq[n] = 440.0f * powf(2.0f, (n - 69) / 12.0f);
+  }
 
   wavetable_osc_init(&lfo);
   wavetable_osc_set_freq(&lfo, 1.0f);
@@ -239,6 +247,8 @@ void audioTask(void* parameter) {
 	
   int16_t buffer[BLOCK_FRAMES * 2];
 
+  static int samples_per_control_rate = SAMPLE_RATE / CONTROL_RATE;
+
   for (;;) {
 
     for (int v=0; v<VOICES; v++) {
@@ -247,29 +257,31 @@ void audioTask(void* parameter) {
 
     for (int i = 0; i < BLOCK_FRAMES; i++) {
 
-      float sample = 0.0f;
-      
       wavetable_osc_process(&lfo);
       float lfoval = wavetable_osc_get_sample(&lfo);
       
+      if (samplecounter % samples_per_control_rate == 0) {
+
+	float pitchMul = exp2f((pitchBendSemitones + lfoval * lfo_pitch_depth) / 12.0f);
+
+	for (int v=0; v<VOICES; v++) {
+
+	  wavetable_osc_set_freq(&voice[v].osc, noteFreq[voice[v].note] * pitchMul);
+
+	  float modcutoff = calculate_modulated_cutoff(voice[v].cutoff * voice[v].env.level,
+						       lfoval, lfo_filter_depth);
+	  resonant_lpf_set_frequency(&voice[v].filter, modcutoff);
+	}
+      }
+
+      float sample = 0.0f;
+
       for (int v=0; v<VOICES; v++) {
-
-	float oscfreq = computeFrequency(voice[v].note, pitchBendSemitones,
-					 lfoval * lfo_pitch_depth);
-	
-	wavetable_osc_set_freq(&voice[v].osc, oscfreq);
-     	wavetable_osc_process(&voice[v].osc);
-	
-     	ar_envelope_process(&voice[v].env);
-	
+	if (voice[v].env.stage == ENV_IDLE) continue;
+	wavetable_osc_process(&voice[v].osc);
+	ar_envelope_process(&voice[v].env);
 	float s = wavetable_osc_get_sample(&voice[v].osc) * voice[v].env.level;
-
-	float modcutoff = calculate_modulated_cutoff(voice[v].cutoff * voice[v].env.level,
-						     lfoval, lfo_filter_depth);
-	resonant_lpf_set_frequency(&voice[v].filter, modcutoff);
-	s = resonant_lpf_process(&voice[v].filter, s);
-	
-	sample += s;
+	sample += resonant_lpf_process(&voice[v].filter, s);
       }
 
       if (sample > 1.0) sample = 1.0;

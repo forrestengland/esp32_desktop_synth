@@ -9,6 +9,31 @@
 #include "buttons.h"
 #include "usb_midi.h"
 
+void on_enc_turn(int enc, int pos) {
+	Serial.printf("encoder turned: %d, %d\n", enc, pos);
+	if (oled_current_screen() == screens_menu) {
+		int item = oled_selected_menu() + pos;
+		if (item < 0) item = 0;
+		if (item >= MENU_ITEM_COUNT) {
+			item = MENU_ITEM_COUNT - 1;
+		}
+		oled_set_selected_menu(item);
+	}
+}
+
+void on_enc_btn(int enc, int state) {
+	Serial.printf("encoder btn: %d, %d\n", enc, state);
+	if (enc == 0 && state == 1) {
+		if (oled_current_screen() != screens_menu) {
+			oled_set_current_screen(screens_menu);
+		} else {
+			if (menu_selected == menu_item_scope) {
+				oled_set_current_screen(screens_scope);
+			}
+		}
+	}
+}
+
 void on_din_noteon(uint8_t channel, uint8_t note, uint8_t vel) {
 	audio_set_note(note, vel);
 }
@@ -22,13 +47,13 @@ void on_usb_noteon(uint8_t channel, uint8_t note, uint8_t vel) {
 }
 
 void on_usb_pitchbend(uint8_t channel, float val) {
-	Serial.printf("got pitchbend: %f\n", val);
+	//	Serial.printf("got pitchbend: %f\n", val);
  	audio_set_pitchbend(val);
 }
 
 void on_button(int button, int state) {
-	audio_set_wavetable(state);
-	// audio_set_env_mode(state); doesn't work good with polyphony right now
+	Serial.printf("button %d: %d\n", button, state);
+	//	audio_set_wavetable(state);
 }
 
 void on_pots(int pot, float value) {
@@ -67,12 +92,14 @@ void setup() {
 
 	din_midi_set_noteon_callback(on_din_noteon);
 	din_midi_set_pitchbend_callback(on_din_pitchbend);
-	buttons_set_callback(on_button);
 
 	usb_midi_set_noteon_callback(on_usb_noteon);
 	usb_midi_set_pitchbend_callback(on_usb_pitchbend);
 
 	pots_set_callback(on_pots);
+	buttons_set_callback(on_button);
+	encoders_set_rotation_callback(on_enc_turn);
+	encoders_set_button_callback(on_enc_btn);
 
 	audio_set_attack(0.3f);
 	audio_set_release(0.7f);

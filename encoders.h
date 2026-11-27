@@ -1,7 +1,12 @@
 #pragma once
 
-
 #include <Arduino.h>
+
+typedef void (*encoder_button_callback)(int encoder, int buttonstate);
+typedef void (*encoder_rotate_callback)(int encoder, int value);
+
+encoder_button_callback enc_btn_cbk = 0;
+encoder_rotate_callback enc_rot_cbk = 0;
 
 #define ENCODER_CLK 13
 #define ENCODER_DT  14
@@ -58,6 +63,14 @@ void IRAM_ATTR encoderISR(void* arg) {
   }
 }
 
+void encoders_set_button_callback(encoder_button_callback cbk) {
+  enc_btn_cbk = cbk;
+}
+
+void encoders_set_rotation_callback(encoder_rotate_callback cbk) {
+  enc_rot_cbk = cbk;
+}
+
 void setupEncoder(Encoder& e) {
   pinMode(e.clkPin, INPUT_PULLUP);
   pinMode(e.dtPin, INPUT_PULLUP);
@@ -73,10 +86,11 @@ void encoders_init() {
   pinMode(ENCODER_SW, INPUT_PULLUP);
   pinMode(ENCODER2_SW, INPUT_PULLUP);
 
-  Serial.println("Encoder test. Turn clockwise: count goes UP. One click = one count.");
+  //  Serial.println("Encoder test. Turn clockwise: count goes UP. One click = one count.");
 }
 
 void encoders_loop() {
+
   static int32_t pos1 = 0, pos2 = 0;
   static bool lastSw1 = HIGH, lastSw2 = HIGH;
 
@@ -90,24 +104,36 @@ void encoders_loop() {
 
   if (d1) {
     pos1 += d1;
-    Serial.printf("ENC1 %+ld  pos=%ld  (bad transitions: %lu)\n",
-                  (long)d1, (long)pos1, (unsigned long)bad1);
+    //  Serial.printf("ENC1 %+ld  pos=%ld  (bad transitions: %lu)\n",
+    //                  (long)d1, (long)pos1, (unsigned long)bad1);
+    if (enc_rot_cbk) {
+      enc_rot_cbk(0, d1);
+    }
   }
   if (d2) {
     pos2 += d2;
-    Serial.printf("ENC2 %+ld  pos=%ld  (bad transitions: %lu)\n",
-                  (long)d2, (long)pos2, (unsigned long)bad2);
+    //    Serial.printf("ENC2 %+ld  pos=%ld  (bad transitions: %lu)\n",
+    //                  (long)d2, (long)pos2, (unsigned long)bad2);
+    if (enc_rot_cbk) {
+      enc_rot_cbk(1, d2);
+    }
   }
 
   bool sw1 = digitalRead(ENCODER_SW);
   bool sw2 = digitalRead(ENCODER2_SW);
   if (sw1 != lastSw1) {
     lastSw1 = sw1;
-    Serial.printf("ENC1 button %s\n", sw1 == LOW ? "PRESSED" : "released");
+    //    Serial.printf("ENC1 button %s\n", sw1 == LOW ? "PRESSED" : "released");
+    if (enc_btn_cbk) {
+      enc_btn_cbk(0, lastSw1);
+    }
   }
   if (sw2 != lastSw2) {
     lastSw2 = sw2;
-    Serial.printf("ENC2 button %s\n", sw2 == LOW ? "PRESSED" : "released");
+    //    Serial.printf("ENC2 button %s\n", sw2 == LOW ? "PRESSED" : "released");
+    if (enc_btn_cbk) {
+      enc_btn_cbk(1, lastSw2);
+    }
   }
 
   delay(2);

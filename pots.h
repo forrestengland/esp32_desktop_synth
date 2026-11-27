@@ -47,7 +47,7 @@ void pots_loop() {
     if (raw[ch] > maxRaw[ch]) maxRaw[ch] = raw[ch];
   }
 
-  if (millis() - lastPrint >= 200) {
+  if (millis() - lastPrint >= 20) {
     lastPrint = millis();
 
     for (int ch = 0; ch < 4; ch++) {

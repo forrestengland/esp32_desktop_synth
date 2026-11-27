@@ -23,7 +23,7 @@ constexpr int I2S_DOUT = 7;
 
 // -------- Audio settings --------
 constexpr int BLOCK_FRAMES = 128;
-constexpr float MAX_AMPLITUDE = 0.20f;
+constexpr float MAX_AMPLITUDE = 0.5f;
 
 // Protect shared audio parameters between tasks
 portMUX_TYPE synthMux = portMUX_INITIALIZER_UNLOCKED;
@@ -35,12 +35,14 @@ float pitchBendRange = 12.0f;
 // -------- I2S driver --------
 i2s_chan_handle_t txHandle = nullptr;
 
-daisysp::MoogLadder flt;
+// daisysp::MoogLadder flt;
 
 // synth voice
 typedef struct {
   wavetable_osc osc;
   ar_envelope env;
+  daisysp::MoogLadder flt;
+  float cutoff;
   int note;
 } synthvoice;
 #define VOICES 4
@@ -50,6 +52,10 @@ int nextvoice = 0;
 void synthvoice_init(synthvoice * v) {
   wavetable_osc_init(&v->osc);
   ar_envelope_init(&v->env);
+  v->flt.Init(SAMPLE_RATE);
+  //  v->flt.SetFreq(500);  
+  v->flt.SetRes(0.5);
+  v->cutoff = 500;
   v->note = -1;
 }
 
@@ -93,18 +99,21 @@ void audio_set_release(float seconds) {
 }
 
 void audio_set_cutoff(float cutoff) {
-  flt.SetFreq(cutoff);
+  for (int v=0; v<VOICES; v++) {
+    //    voice[v].flt.SetFreq(cutoff);
+    voice[v].cutoff = cutoff;
+  }
 }
 
 void audio_set_resonance(float resonance) {
-  flt.SetRes(resonance);
+  for (int v=0; v<VOICES; v++) {  
+    voice[v].flt.SetRes(resonance);
+  }
 }
 
 void audio_init() {
 
-  flt.Init(SAMPLE_RATE);
-  flt.SetFreq(500);
-  flt.SetRes(0.5);
+  //  flt.Init(SAMPLE_RATE);
 
   //  wavetable_osc_init(&osc);
   //  ar_envelope_init(&env);
@@ -248,11 +257,11 @@ void audioTask(void* parameter) {
 
       for (int v=0; v<VOICES; v++) {
 	if (voice[v].env.level > 0.0f) {
-	  sample += wavetable_osc_get_sample(&voice[v].osc) * voice[v].env.level;
+	  float s = wavetable_osc_get_sample(&voice[v].osc) * voice[v].env.level;
+	  voice[v].flt.SetFreq(voice[v].cutoff * voice[v].env.level);
+	  sample += voice[v].flt.Process(s);
 	}
       }
-
-      sample = flt.Process(sample);
 
       if (sample > 1.0) sample = 1.0;
       if (sample < -1.0) sample = -1.0;

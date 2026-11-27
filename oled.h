@@ -9,7 +9,47 @@
 #define I2C_SCL 12
 #define OLED_ADDRESS 0x3C
 
+// ----------- screens ------------
+
+enum oled_screens {
+  screens_menu,  
+  screens_scope
+};
+
+oled_screens screen = screens_scope;
+
+// ------------ menu -------------
+
+enum menu_items {
+  menu_item_scope,
+  menu_item_synth
+};
+
+typedef struct {
+  char * label;
+} oled_menu_item;
+
+int menu_selected = 0;
+#define MENU_ITEM_COUNT 2
+oled_menu_item menu_items[MENU_ITEM_COUNT] = {{"Scope"}, {"Synth"}};
+
 Adafruit_SSD1306 display(128, 64, &Wire, -1, 400000UL, 400000UL);
+
+int oled_selected_menu() {
+  return menu_selected;
+}
+
+void oled_set_selected_menu(int item) {
+  menu_selected = item;
+}
+
+oled_screens oled_current_screen() {
+  return screen;
+}
+
+void oled_set_current_screen(oled_screens newscr) {
+  screen = newscr;
+}
 
 void scanI2C() {
   Serial.println("I2C scan:");
@@ -51,18 +91,28 @@ void oled_init() {
 
 void oled_loop() {
 
-  static uint32_t frames = 0;
-  static uint32_t lastFpsMs = 0;
-  static int x = 0, dx = 2;
-  static uint32_t counter = 0;
-
   display.clearDisplay();
 
-  for (x=0; x<128; x++) {
-    int y = dispsamples[x] * 32 + 32;
-    display.drawPixel(x, y, SSD1306_WHITE);
+  if (screen == screens_scope) {
+
+    for (int x=0; x<128; x++) {
+      int y = dispsamples[x] * 32 + 32;
+      display.drawPixel(x, y, SSD1306_WHITE);
+    }
+    
+  } else if (screen == screens_menu) {
+
+    for (int m=0; m<MENU_ITEM_COUNT; m++) {
+      if (m == menu_selected) {
+	display.fillRect(0, m * 8, 128, 8, SSD1306_WHITE);
+	display.setTextColor(SSD1306_BLACK);
+      } else {
+	display.setTextColor(SSD1306_WHITE);
+      }
+      display.setCursor(0, m * 8);
+      display.print(menu_items[m].label);
+    }
   }
 
   display.display();
-  frames++;
 }

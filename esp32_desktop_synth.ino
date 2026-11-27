@@ -58,6 +58,8 @@ void on_usb_cc(uint8_t channel, uint8_t cc, uint8_t val) {
 		audio_set_lfo_pitch_depth((float)val / 127.0f);
 	} else if (cc == 12) {
 		audio_set_lfo_freq((float)val / 127.0f * 100.0f);
+	} else if (cc == 13) {
+		audio_set_lfo_filter_depth((float)val / 127.0f);
 	}
 }
 

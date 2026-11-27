@@ -49,7 +49,26 @@ typedef struct {
 synthvoice voice[VOICES];
 int nextvoice = 0;
 
-float lfo_pitch_depth = 0.0;
+float lfo_pitch_depth = 0.0f;
+float lfo_filter_depth = 0.0f;
+
+void audio_set_lfo_filter_depth(float depth) {
+  lfo_filter_depth = depth;
+}
+
+float calculate_modulated_cutoff(float baseCutoff, float lfoValue, float amount) {
+
+  float modulation = lfoValue * amount * 4000.0f;
+
+    float cutoff = baseCutoff + modulation;
+
+    if (cutoff < 20.0f) cutoff = 20.0f;
+    if (cutoff > SAMPLE_RATE * 0.45f) {
+        cutoff = SAMPLE_RATE * 0.45f;
+    }
+
+    return cutoff;
+}
 
 void audio_set_lfo_freq(float freq) {
   wavetable_osc_set_freq(&lfo, freq);
@@ -245,7 +264,9 @@ void audioTask(void* parameter) {
 	
 	float s = wavetable_osc_get_sample(&voice[v].osc) * voice[v].env.level;
 
-	resonant_lpf_set_frequency(&voice[v].filter, voice[v].cutoff * voice[v].env.level);
+	float modcutoff = calculate_modulated_cutoff(voice[v].cutoff * voice[v].env.level,
+						     lfoval, lfo_filter_depth);
+	resonant_lpf_set_frequency(&voice[v].filter, modcutoff);
 	s = resonant_lpf_process(&voice[v].filter, s);
 	
 	sample += s;

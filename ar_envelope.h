@@ -57,34 +57,26 @@ void ar_envelope_set_gate(ar_envelope * env, int gate) {
   else env->stage = ENV_RELEASE;
 }
 
-void ar_envelope_audio_setup(ar_envelope * env) {
-    env->block_target_amplitude = env->target_amplitude;
-    env->block_attack_step = env->attack_step;
-    env->block_release_step = env->release_step;
-    env->block_stage = env->stage;
-}
-
-void ar_envelope_sample_begin(ar_envelope * env) {
+void ar_envelope_process(ar_envelope * env) {
 
   if (env->stage == ENV_ATTACK) {
-    env->level += env->block_attack_step * env->block_target_amplitude;
-    if (env->level >= env->block_target_amplitude) {
-      env->level = env->block_target_amplitude;
+    env->level += env->attack_step * env->target_amplitude;
+
+    if (env->level >= env->target_amplitude) {
+      env->level = env->target_amplitude;
+
       if (env->mode) {
-	env->stage = ENV_RELEASE;
+        env->stage = ENV_RELEASE;
       }
     }
-  } else if (env->stage == ENV_RELEASE) {
-    env->level -= env->block_release_step * env->block_target_amplitude;
+  }
+  else if (env->stage == ENV_RELEASE) {
+    env->level -= env->release_step * env->target_amplitude;
+
     if (env->level <= 0.0f) {
       env->level = 0.0f;
-      env->block_stage = ENV_IDLE;
+      env->stage = ENV_IDLE;
     }
   }
 }
 
-void ar_envelope_audio_cleanup(ar_envelope * env) {
-  if (env->stage == ENV_RELEASE && env->block_stage == ENV_IDLE) {
-    env->stage = ENV_IDLE;
-  }
-}

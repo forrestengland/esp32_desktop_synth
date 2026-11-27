@@ -43,12 +43,22 @@ void on_din_pitchbend(uint8_t channel, float val) {
 }
 
 void on_usb_noteon(uint8_t channel, uint8_t note, uint8_t vel) {
+	Serial.printf("got usb note on %d %d\n", note, vel);
 	audio_set_note(note, vel);
 }
 
 void on_usb_pitchbend(uint8_t channel, float val) {
 	//	Serial.printf("got pitchbend: %f\n", val);
  	audio_set_pitchbend(val);
+}
+
+void on_usb_cc(uint8_t channel, uint8_t cc, uint8_t val) {
+	Serial.printf("got usb midi cc %d %d\n", cc, val);
+	if (cc == 1) {
+		audio_set_lfo_pitch_depth((float)val / 127.0f);
+	} else if (cc == 12) {
+		audio_set_lfo_freq((float)val / 127.0f * 100.0f);
+	}
 }
 
 void on_button(int button, int state) {
@@ -95,6 +105,7 @@ void setup() {
 
 	usb_midi_set_noteon_callback(on_usb_noteon);
 	usb_midi_set_pitchbend_callback(on_usb_pitchbend);
+	usb_midi_set_control_callback(on_usb_cc);
 
 	pots_set_callback(on_pots);
 	buttons_set_callback(on_button);

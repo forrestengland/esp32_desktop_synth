@@ -4,13 +4,15 @@
 
 float wavetable_osc_saw_table[WAVETABLE_OSC_SIZE];
 float wavetable_osc_square_table[WAVETABLE_OSC_SIZE];
+float wavetable_osc_triangle_table[WAVETABLE_OSC_SIZE];
 
 int wavetable_osc_tables_initialized = 0;
 
 // wavetable osc
 enum wavetable_osc_waveform {
     WAVETABLE_OSC_WAVEFORM_SAW,
-    WAVETABLE_OSC_WAVEFORM_SQUARE
+    WAVETABLE_OSC_WAVEFORM_SQUARE,
+    WAVETABLE_OSC_WAVEFORM_TRIANGLE
 };
 
 typedef struct {
@@ -22,11 +24,27 @@ typedef struct {
   float block_phase_increment;
 } wavetable_osc;
 
+void wavetable_osc_set_freq(wavetable_osc * osc, float freq) {
+  osc->target_phase_increment = (freq * WAVETABLE_OSC_SIZE) / SAMPLE_RATE;
+}
+
 void wavetable_osc_set_table(wavetable_osc * osc, int table) {
-  if (table) {
-    osc->current_waveform = WAVETABLE_OSC_WAVEFORM_SAW;
-  } else {
-    osc->current_waveform = WAVETABLE_OSC_WAVEFORM_SQUARE;
+  switch (table) {
+    case 0:
+      osc->current_waveform = WAVETABLE_OSC_WAVEFORM_SQUARE;
+      break;
+
+    case 1:
+      osc->current_waveform = WAVETABLE_OSC_WAVEFORM_SAW;
+      break;
+
+    case 2:
+      osc->current_waveform = WAVETABLE_OSC_WAVEFORM_TRIANGLE;
+      break;
+
+    default:
+      osc->current_waveform = WAVETABLE_OSC_WAVEFORM_SAW;
+      break;
   }
 }
 
@@ -35,11 +53,22 @@ void wavetable_osc_initialize_wavetables() {
   for (int i = 0; i < WAVETABLE_OSC_SIZE; i++) {
     float position = (float)i / WAVETABLE_OSC_SIZE;
 
-    // Sawtooth: -1.0 to nearly +1.0
-    wavetable_osc_saw_table[i] = (2.0f * position) - 1.0f;
+    // Sawtooth: -1 to nearly +1
+    wavetable_osc_saw_table[i] =
+        (2.0f * position) - 1.0f;
 
-    // Square: first half positive, second half negative
-    wavetable_osc_square_table[i] = (position < 0.5f) ? 1.0f : -1.0f;
+    // Square: positive first half, negative second half
+    wavetable_osc_square_table[i] =
+        (position < 0.5f) ? 1.0f : -1.0f;
+
+    // Triangle: -1 to +1 to -1
+    if (position < 0.5f) {
+      wavetable_osc_triangle_table[i] =
+          -1.0f + (4.0f * position);
+    } else {
+      wavetable_osc_triangle_table[i] =
+          3.0f - (4.0f * position);
+    }
   }
 
   Serial.println("Wavetables initialized.");
@@ -67,9 +96,9 @@ void wavetable_osc_audio_setup(wavetable_osc * osc) {
   osc->block_phase_increment = osc->target_phase_increment;
 }
 
-void wavetable_osc_sample_begin(wavetable_osc * osc) {
+void wavetable_osc_process(wavetable_osc * osc) {
   // smooth pitch updates to prevent zipper noise
-  osc->phase_increment += 0.01f * (osc->block_phase_increment - osc->phase_increment);
+  osc->phase_increment += 0.01f * (osc->target_phase_increment - osc->phase_increment);
 
 }
 
@@ -84,10 +113,22 @@ float wavetable_osc_get_sample(wavetable_osc * osc) {
     nextIndex = 0;
   }
 
-  float* table =
-      (osc->current_waveform == WAVETABLE_OSC_WAVEFORM_SAW)
-      ? wavetable_osc_saw_table
-      : wavetable_osc_square_table;
+  float* table;
+
+  switch (osc->current_waveform) {
+  case WAVETABLE_OSC_WAVEFORM_SQUARE:
+    table = wavetable_osc_square_table;
+    break;
+
+  case WAVETABLE_OSC_WAVEFORM_TRIANGLE:
+    table = wavetable_osc_triangle_table;
+    break;
+
+  case WAVETABLE_OSC_WAVEFORM_SAW:
+  default:
+    table = wavetable_osc_saw_table;
+    break;
+  }  
 
   float sample = table[index] +
       (table[nextIndex] - table[index]) * fraction;

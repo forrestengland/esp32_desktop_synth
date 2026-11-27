@@ -11,9 +11,11 @@ static uint64_t lastEventIndex = 0;
 
 typedef void (*usb_midi_note_callback)(uint8_t channel, uint8_t note, uint8_t vel);
 typedef void (*usb_midi_pitch_callback)(uint8_t channel, float value);
+typedef void (*usb_midi_control_callback)(uint8_t channel, uint8_t cc, uint8_t val);
 
 usb_midi_note_callback usb_midi_noteon_cbk = 0;
 usb_midi_pitch_callback usb_midi_pitchbend_cbk = 0;
+usb_midi_control_callback usb_midi_cc_cbk;
 
 void usb_midi_set_noteon_callback(usb_midi_note_callback cbk) {
   usb_midi_noteon_cbk = cbk;
@@ -21,6 +23,10 @@ void usb_midi_set_noteon_callback(usb_midi_note_callback cbk) {
 
 void usb_midi_set_pitchbend_callback(usb_midi_pitch_callback cbk) {
   usb_midi_pitchbend_cbk = cbk;
+}
+
+void usb_midi_set_control_callback(usb_midi_control_callback cbk) {
+  usb_midi_cc_cbk = cbk;
 }
 
 void usb_midi_process() {
@@ -65,7 +71,10 @@ void usb_midi_process() {
       //	      channel, note);
       //      Serial.print(str);
       if (usb_midi_noteon_cbk) usb_midi_noteon_cbk(channel, note, 0);
-    } else if (status == 0xF0) { // control change
+    } else if (status == 0xb0) { // control change
+      int cc = ev.noteNumber;
+      int val = ev.velocity7;
+      if (usb_midi_cc_cbk) usb_midi_cc_cbk(channel, cc, val);
     } else if (status == 0xe0) { // pitch bend
 
       // ev.pitchBend14 is already decoded: 0 .. 16383 (center = 8192)

@@ -27,7 +27,7 @@ constexpr int I2S_DOUT = 7;
 
 // -------- Audio settings --------
 constexpr int BLOCK_FRAMES = 128;
-constexpr float MAX_AMPLITUDE = 0.1f;
+constexpr float MAX_AMPLITUDE = 0.07f;
 
 // Protect shared audio parameters between tasks
 portMUX_TYPE synthMux = portMUX_INITIALIZER_UNLOCKED;
@@ -49,12 +49,29 @@ typedef struct {
   float cutoff;
   int note;
 } synthvoice;
-#define VOICES 5
+#define VOICES 8
 synthvoice voice[VOICES];
 int nextvoice = 0;
 
 float lfo_pitch_depth = 0.0f;
 float lfo_filter_depth = 0.0f;
+float env_filter_depth = 0.0f;
+#define FILTER_ENV_RANGE 8000.0f;
+
+#define OUTPUT_DRIVE 1.0f
+
+// Cubic soft clipper: smooth, no divide, output is exactly +/-1 for |x| >= 1.5
+static inline float soft_clip(float x) {
+  if (x >= 1.5f)  return 1.0f;
+  if (x <= -1.5f) return -1.0f;
+  return x - (x * x * x) * (4.0f / 27.0f);
+}
+
+void audio_set_env_filter_depth(float amount) {
+  if (amount < 0.0f) amount = 0.0f;
+  if (amount > 1.0f) amount = 1.0f;
+  env_filter_depth = amount;
+}
 
 void audio_set_lfo_filter_depth(float depth) {
   lfo_filter_depth = depth;
@@ -259,18 +276,25 @@ void audioTask(void* parameter) {
 
       wavetable_osc_process(&lfo);
       float lfoval = wavetable_osc_get_sample(&lfo);
-      
+
+      // control rate
       if (samplecounter % samples_per_control_rate == 0) {
 
 	float pitchMul = exp2f((pitchBendSemitones + lfoval * lfo_pitch_depth) / 12.0f);
 
 	for (int v=0; v<VOICES; v++) {
 
+	  if (voice[v].env.stage == ENV_IDLE) continue;
+
 	  wavetable_osc_set_freq(&voice[v].osc, noteFreq[voice[v].note] * pitchMul);
 
-	  float modcutoff = calculate_modulated_cutoff(voice[v].cutoff * voice[v].env.level,
-						       lfoval, lfo_filter_depth);
-	  resonant_lpf_set_frequency(&voice[v].filter, modcutoff);
+	  // envelope normalised to 0..1, independent of velocity
+	  float target = voice[v].env.target_amplitude;
+	  float envn = (target > 0.0f) ? voice[v].env.level / target : 0.0f;
+
+	  float base = voice[v].cutoff + env_filter_depth * envn * FILTER_ENV_RANGE;
+	  float mc = calculate_modulated_cutoff(base, lfoval, lfo_filter_depth);
+	  resonant_lpf_set_frequency(&voice[v].filter, mc);
 	}
       }
 
@@ -283,6 +307,8 @@ void audioTask(void* parameter) {
 	float s = wavetable_osc_get_sample(&voice[v].osc) * voice[v].env.level;
 	sample += resonant_lpf_process(&voice[v].filter, s);
       }
+
+      sample = soft_clip(sample * OUTPUT_DRIVE);
 
       if (sample > 1.0) sample = 1.0;
       if (sample < -1.0) sample = -1.0;

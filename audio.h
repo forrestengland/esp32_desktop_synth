@@ -27,7 +27,10 @@ constexpr int I2S_DOUT = 7;
 
 // -------- Audio settings --------
 constexpr int BLOCK_FRAMES = 128;
-constexpr float MAX_AMPLITUDE = 0.07f;
+constexpr float MAX_AMPLITUDE = 0.1f;
+
+float voice_amp = 0.1f;
+float portamento = 0.2f;
 
 // Protect shared audio parameters between tasks
 portMUX_TYPE synthMux = portMUX_INITIALIZER_UNLOCKED;
@@ -48,6 +51,7 @@ typedef struct {
   resonant_lpf filter;
   float cutoff;
   int note;
+  float afreq;
 } synthvoice;
 #define VOICES 8
 synthvoice voice[VOICES];
@@ -65,6 +69,14 @@ static inline float soft_clip(float x) {
   if (x >= 1.5f)  return 1.0f;
   if (x <= -1.5f) return -1.0f;
   return x - (x * x * x) * (4.0f / 27.0f);
+}
+
+void audio_set_amp(float amt) {
+  voice_amp = amt;
+}
+
+void audio_set_portamento(float amt) {
+  portamento = amt;
 }
 
 void audio_set_env_filter_depth(float amount) {
@@ -105,8 +117,9 @@ void synthvoice_init(synthvoice * v) {
   ar_envelope_init(&v->env);
   resonant_lpf_init(&v->filter);
   
-  v->cutoff = 500;
+  v->cutoff = 500.0f;
   v->note = -1;
+  v->afreq = 0.0f;
 }
 
 void audio_set_cutoff(float cutoff) {
@@ -286,7 +299,8 @@ void audioTask(void* parameter) {
 
 	  if (voice[v].env.stage == ENV_IDLE) continue;
 
-	  wavetable_osc_set_freq(&voice[v].osc, noteFreq[voice[v].note] * pitchMul);
+	  voice[v].afreq = voice[v].afreq * portamento + noteFreq[voice[v].note] * (1.0 - portamento);
+	  wavetable_osc_set_freq(&voice[v].osc, voice[v].afreq * pitchMul);
 
 	  // envelope normalised to 0..1, independent of velocity
 	  float target = voice[v].env.target_amplitude;
@@ -308,7 +322,7 @@ void audioTask(void* parameter) {
 	sample += resonant_lpf_process(&voice[v].filter, s);
       }
 
-      sample = soft_clip(sample * OUTPUT_DRIVE);
+      sample = soft_clip(sample * OUTPUT_DRIVE * voice_amp);
 
       if (sample > 1.0) sample = 1.0;
       if (sample < -1.0) sample = -1.0;
